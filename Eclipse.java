@@ -1,804 +1,1634 @@
-import java.io.*;
-import java.nio.file.*;
-import java.util.*;
-import java.util.regex.*;
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Graphics;
+import java.awt.Image;
+import java.awt.Rectangle;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
+
+import java.io.File;
+import java.io.InputStream;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+
+import javax.imageio.ImageIO;
+import javax.swing.JFrame;
+import javax.swing.JPanel;
+import javax.swing.SwingUtilities;
+
 
 public class Eclipse {
 
-    static final String GENERATED_CLASS = "EclipseProgram";
+    private static final String VERSION = "Eclipse ECS Compiler 1.0";
+
+    private static final String GENERATED_CLASS =
+            "EclipseProgram";
+
 
     public static void main(String[] args) {
+
+        System.out.println();
+        System.out.println("================================");
+        System.out.println("        ECLIPSE COMPILER");
+        System.out.println("================================");
+        System.out.println(VERSION);
+        System.out.println();
+
+
         if (args.length == 0) {
-            System.out.println("Eclipse Compiler");
-            System.out.println("Usage: java Eclipse <file.ecs>");
+
+            System.out.println("Usage:");
+            System.out.println();
+            System.out.println("  java Eclipse game.ecs");
+            System.out.println();
+
             return;
         }
 
-        Path ecs = Paths.get(args[0]);
 
-        if (!Files.exists(ecs)) {
-            error("File not found: " + ecs);
+        Path ecsFile =
+                Paths.get(args[0])
+                        .toAbsolutePath()
+                        .normalize();
+
+
+        if (!Files.exists(ecsFile)) {
+
+            error(
+                    "ECS file not found: "
+                    + ecsFile
+            );
+
             return;
         }
 
-        if (!ecs.toString().toLowerCase().endsWith(".ecs")) {
-            error("Only .ecs files can be compiled.");
+
+        if (
+                !ecsFile
+                        .toString()
+                        .toLowerCase()
+                        .endsWith(".ecs")
+        ) {
+
+            error(
+                    "The file must use the .ecs extension."
+            );
+
             return;
         }
+
 
         try {
-            List<String> source = Files.readAllLines(ecs);
-            String java = compile(source);
 
-            Path folder = ecs.toAbsolutePath()
-                    .getParent()
-                    .resolve(".eclipse-build");
+            List<String> lines =
+                    Files.readAllLines(
+                            ecsFile
+                    );
 
-            Files.createDirectories(folder);
+
+            String generated =
+                    compile(lines);
+
+
+            Path projectFolder =
+                    ecsFile.getParent();
+
+
+            Path buildFolder =
+                    projectFolder.resolve(
+                            ".eclipse-build"
+                    );
+
+
+            Files.createDirectories(
+                    buildFolder
+            );
+
 
             Path javaFile =
-                    folder.resolve(GENERATED_CLASS + ".java");
+                    buildFolder.resolve(
+                            GENERATED_CLASS
+                            + ".java"
+                    );
 
-            Files.writeString(javaFile, java);
 
-            System.out.println("Eclipse");
-            System.out.println("-------");
-            System.out.println("Compiling: " + ecs.getFileName());
-            System.out.println("Generating Java...");
+            Files.writeString(
+                    javaFile,
+                    generated
+            );
 
-            Process javac = new ProcessBuilder(
-                    "javac",
-                    javaFile.toString()
-            ).inheritIO().start();
 
-            int result = javac.waitFor();
+            System.out.println(
+                    "Source:"
+            );
+
+            System.out.println(
+                    "  "
+                    + ecsFile
+            );
+
+            System.out.println();
+
+
+            System.out.println(
+                    "Generating Java..."
+            );
+
+
+            System.out.println(
+                    "  "
+                    + javaFile
+            );
+
+            System.out.println();
+
+
+            Process javac =
+                    new ProcessBuilder(
+                            "javac",
+                            javaFile.toString()
+                    )
+                    .inheritIO()
+                    .start();
+
+
+            int result =
+                    javac.waitFor();
+
 
             if (result != 0) {
-                error("Java compilation failed.");
+
+                error(
+                        "Generated Java compilation failed."
+                );
+
                 return;
             }
 
-            System.out.println("Running...");
+
+            System.out.println(
+                    "ECS compilation successful!"
+            );
+
             System.out.println();
 
-            Process javaProcess = new ProcessBuilder(
-                    "java",
-                    "-cp",
-                    folder.toString(),
-                    GENERATED_CLASS
-            ).inheritIO().start();
 
-            javaProcess.waitFor();
+            System.out.println(
+                    "Launching ECS program..."
+            );
+
+            System.out.println();
+
+
+            Process program =
+                    new ProcessBuilder(
+                            "java",
+                            "-cp",
+                            buildFolder.toString(),
+                            GENERATED_CLASS
+                    )
+                    .inheritIO()
+                    .start();
+
+
+            program.waitFor();
+
 
         } catch (Exception e) {
-            error(e.getMessage());
+
+            error(
+                    e.getClass()
+                            .getSimpleName()
+                    + ": "
+                    + e.getMessage()
+            );
         }
     }
 
-    static String compile(List<String> source) {
 
-        StringBuilder out = new StringBuilder();
+    /*
+     * ============================================================
+     * COMPILER
+     * ============================================================
+     */
 
-        out.append("import java.io.*;\n");
-        out.append("import java.util.*;\n");
-        out.append("import javax.swing.*;\n");
-        out.append("import java.awt.*;\n");
-        out.append("import java.awt.event.*;\n");
-        out.append("\n");
-
-        out.append("public class ")
-                .append(GENERATED_CLASS)
-                .append(" {\n\n");
-
-        out.append("""
-            static JFrame window;
-            static GamePanel panel;
-
-            static boolean game = true;
-
-            static HashMap<String, GameObject> objects =
-                    new HashMap<>();
-
-            static HashSet<Integer> keys =
-                    new HashSet<>();
-
-            static String title = "Eclipse";
-
-            static class GameObject {
-                String name;
-                int x = 0;
-                int y = 0;
-                int width = 50;
-                int height = 50;
-
-                GameObject(String name) {
-                    this.name = name;
-                }
-            }
-
-            static class GamePanel extends JPanel {
-
-                GamePanel() {
-                    setFocusable(true);
-
-                    addKeyListener(new KeyAdapter() {
-                        public void keyPressed(KeyEvent e) {
-                            keys.add(e.getKeyCode());
-                        }
-
-                        public void keyReleased(KeyEvent e) {
-                            keys.remove(e.getKeyCode());
-                        }
-                    });
-                }
-
-                protected void paintComponent(Graphics g) {
-                    super.paintComponent(g);
-
-                    g.setColor(Color.BLACK);
-                    g.fillRect(
-                        0,
-                        0,
-                        getWidth(),
-                        getHeight()
-                    );
-
-                    for (GameObject obj : objects.values()) {
-
-                        if (obj.name.equals("player")) {
-                            g.setColor(Color.CYAN);
-                        }
-                        else if (obj.name.equals("enemy")) {
-                            g.setColor(Color.RED);
-                        }
-                        else if (obj.name.equals("bullet")) {
-                            g.setColor(Color.YELLOW);
-                        }
-                        else {
-                            g.setColor(Color.WHITE);
-                        }
-
-                        g.fillRect(
-                            obj.x,
-                            obj.y,
-                            obj.width,
-                            obj.height
-                        );
-                    }
-                }
-            }
-
-            static void createWindow(int width, int height) {
-
-                SwingUtilities.invokeLater(() -> {
-
-                    window = new JFrame(title);
-
-                    panel = new GamePanel();
-
-                    panel.setPreferredSize(
-                        new Dimension(width, height)
-                    );
-
-                    window.setDefaultCloseOperation(
-                        JFrame.EXIT_ON_CLOSE
-                    );
-
-                    window.add(panel);
-                    window.pack();
-                    window.setLocationRelativeTo(null);
-                    window.setVisible(true);
-
-                    panel.requestFocusInWindow();
-                });
-
-                sleep(100);
-            }
-
-            static void createObject(String name) {
-                objects.put(
-                    name,
-                    new GameObject(name)
-                );
-            }
-
-            static void setX(String name, int x) {
-                GameObject obj = objects.get(name);
-
-                if (obj != null) {
-                    obj.x = x;
-                }
-            }
-
-            static void setY(String name, int y) {
-                GameObject obj = objects.get(name);
-
-                if (obj != null) {
-                    obj.y = y;
-                }
-            }
-
-            static void moveX(String name, int amount) {
-                GameObject obj = objects.get(name);
-
-                if (obj != null) {
-                    obj.x += amount;
-                }
-            }
-
-            static void moveY(String name, int amount) {
-                GameObject obj = objects.get(name);
-
-                if (obj != null) {
-                    obj.y += amount;
-                }
-            }
-
-            static boolean keyDown(String key) {
-
-                switch (key.toUpperCase()) {
-
-                    case "LEFT":
-                        return keys.contains(KeyEvent.VK_LEFT);
-
-                    case "RIGHT":
-                        return keys.contains(KeyEvent.VK_RIGHT);
-
-                    case "UP":
-                        return keys.contains(KeyEvent.VK_UP);
-
-                    case "DOWN":
-                        return keys.contains(KeyEvent.VK_DOWN);
-
-                    case "SPACE":
-                        return keys.contains(KeyEvent.VK_SPACE);
-
-                    case "ENTER":
-                        return keys.contains(KeyEvent.VK_ENTER);
-
-                    case "R":
-                        return keys.contains(KeyEvent.VK_R);
-
-                    default:
-                        return false;
-                }
-            }
-
-            static boolean collision(
-                    String first,
-                    String second
-            ) {
-
-                GameObject a = objects.get(first);
-                GameObject b = objects.get(second);
-
-                if (a == null || b == null) {
-                    return false;
-                }
-
-                Rectangle ra = new Rectangle(
-                    a.x,
-                    a.y,
-                    a.width,
-                    a.height
-                );
-
-                Rectangle rb = new Rectangle(
-                    b.x,
-                    b.y,
-                    b.width,
-                    b.height
-                );
-
-                return ra.intersects(rb);
-            }
-
-            static void draw() {
-
-                if (panel != null) {
-                    panel.repaint();
-                }
-            }
-
-            static void sleep(long ms) {
-                try {
-                    Thread.sleep(ms);
-                }
-                catch (InterruptedException ignored) {
-                }
-            }
-
-            """);
-
-        out.append(
-                "    public static void main(String[] args) throws Exception {\n"
-        );
-
-        compileLines(source, out, 2);
-
-        out.append("    }\n");
-        out.append("}\n");
-
-        return out.toString();
-    }
-
-    static void compileLines(
-            List<String> lines,
-            StringBuilder out,
-            int indent
+    static String compile(
+            List<String> lines
     ) {
 
-        for (int i = 0; i < lines.size(); i++) {
+        StringBuilder main =
+                new StringBuilder();
 
-            String line = clean(lines.get(i));
+
+        StringBuilder functions =
+                new StringBuilder();
+
+
+        boolean functionMode =
+                false;
+
+
+        String functionName =
+                "";
+
+
+        List<String> functionLines =
+                new ArrayList<>();
+
+
+        for (String raw : lines) {
+
+            String line =
+                    raw.trim();
+
 
             if (line.isEmpty()) {
                 continue;
             }
 
-            // console.log(...)
-            if (line.startsWith("console.log(")) {
 
-                String value = inside(line);
-
-                out.append(spaces(indent))
-                        .append("System.out.println(")
-                        .append(expression(value))
-                        .append(");\n");
-
+            if (line.startsWith("#")) {
                 continue;
             }
 
-            // create window(800, 600)
-            if (line.startsWith("create window(")) {
 
-                String value = inside(line);
-                String[] p = value.split(",");
+            /*
+             * func shoot()
+             */
 
-                if (p.length == 2) {
+            if (
+                    line.startsWith(
+                            "func "
+                    )
+            ) {
 
-                    out.append(spaces(indent))
-                            .append("createWindow(")
-                            .append(expression(p[0]))
-                            .append(",")
-                            .append(expression(p[1]))
-                            .append(");\n");
-                }
+                functionMode =
+                        true;
 
-                continue;
-            }
 
-            // title = "Eclipse Shooter"
-            if (line.startsWith("title =")) {
-
-                String value =
-                        line.substring(7).trim();
-
-                out.append(spaces(indent))
-                        .append("title = ")
-                        .append(expression(value))
-                        .append(";\n");
-
-                continue;
-            }
-
-            // obj player
-            if (line.startsWith("obj ")) {
-
-                String name =
-                        line.substring(4).trim();
-
-                out.append(spaces(indent))
-                        .append("createObject(\"")
-                        .append(name)
-                        .append("\");\n");
-
-                continue;
-            }
-
-            // set player x 400
-            if (line.startsWith("set ")) {
-
-                String[] p =
-                        line.split("\\s+");
-
-                if (p.length >= 4) {
-
-                    String object = p[1];
-                    String axis = p[2];
-                    String value = p[3];
-
-                    if (axis.equalsIgnoreCase("x")) {
-
-                        out.append(spaces(indent))
-                                .append("setX(\"")
-                                .append(object)
-                                .append("\",")
-                                .append(expression(value))
-                                .append(");\n");
-                    }
-
-                    if (axis.equalsIgnoreCase("y")) {
-
-                        out.append(spaces(indent))
-                                .append("setY(\"")
-                                .append(object)
-                                .append("\",")
-                                .append(expression(value))
-                                .append(");\n");
-                    }
-                }
-
-                continue;
-            }
-
-            // move player x 5
-            if (line.startsWith("move ")) {
-
-                String[] p =
-                        line.split("\\s+");
-
-                if (p.length >= 4) {
-
-                    String object = p[1];
-                    String axis = p[2];
-                    String value = p[3];
-
-                    if (axis.equalsIgnoreCase("x")) {
-
-                        out.append(spaces(indent))
-                                .append("moveX(\"")
-                                .append(object)
-                                .append("\",")
-                                .append(expression(value))
-                                .append(");\n");
-                    }
-
-                    if (axis.equalsIgnoreCase("y")) {
-
-                        out.append(spaces(indent))
-                                .append("moveY(\"")
-                                .append(object)
-                                .append("\",")
-                                .append(expression(value))
-                                .append(");\n");
-                    }
-                }
-
-                continue;
-            }
-
-            // draw player
-            if (line.startsWith("draw ")) {
-
-                out.append(spaces(indent))
-                        .append("draw();\n");
-
-                continue;
-            }
-
-            // if keydown("SPACE") then
-            if (line.startsWith("if keydown(")
-                    && line.endsWith("then")) {
-
-                String value =
+                functionName =
                         line.substring(
-                                3,
-                                line.length() - 5
-                        );
-
-                String key =
-                        inside(value);
-
-                out.append(spaces(indent))
-                        .append("if (keyDown(")
-                        .append(expression(key))
-                        .append(")) {\n");
-
-                int end = compileBlock(
-                        lines,
-                        i + 1,
-                        out,
-                        indent + 1
-                );
-
-                out.append(spaces(indent))
-                        .append("}\n");
-
-                i = end;
-
-                continue;
-            }
-
-            // if collision(player, enemy) then
-            if (line.startsWith("if collision(")
-                    && line.endsWith("then")) {
-
-                String value =
-                        inside(
-                                line.substring(
-                                        3,
-                                        line.length() - 5
-                                )
-                        );
-
-                String[] p = value.split(",");
-
-                if (p.length == 2) {
-
-                    out.append(spaces(indent))
-                            .append("if (collision(\"")
-                            .append(p[0].trim())
-                            .append("\",\"")
-                            .append(p[1].trim())
-                            .append("\")) {\n");
-
-                    int end = compileBlock(
-                            lines,
-                            i + 1,
-                            out,
-                            indent + 1
-                    );
-
-                    out.append(spaces(indent))
-                            .append("}\n");
-
-                    i = end;
-                }
-
-                continue;
-            }
-
-            // if [x] = 3 then
-            if (line.startsWith("if ")
-                    && line.endsWith("then")) {
-
-                String condition =
-                        line.substring(
-                                3,
-                                line.length() - 5
+                                5
                         ).trim();
 
-                out.append(spaces(indent))
-                        .append("if (")
-                        .append(condition(condition))
-                        .append(") {\n");
 
-                int end = compileBlock(
-                        lines,
-                        i + 1,
-                        out,
-                        indent + 1
-                );
+                if (
+                        functionName
+                                .endsWith(
+                                        "()"
+                                )
+                ) {
 
-                out.append(spaces(indent))
-                        .append("}\n");
-
-                i = end;
-
-                continue;
-            }
-
-            // while [game] = true
-            if (line.startsWith("while ")) {
-
-                String value =
-                        line.substring(6).trim();
-
-                out.append(spaces(indent))
-                        .append("while (")
-                        .append(condition(value))
-                        .append(") {\n");
-
-                int end = compileBlock(
-                        lines,
-                        i + 1,
-                        out,
-                        indent + 1
-                );
-
-                out.append(spaces(indent))
-                        .append("}\n");
-
-                i = end;
-
-                continue;
-            }
-
-            // repeat 5
-            if (line.startsWith("repeat ")) {
-
-                String amount =
-                        line.substring(7).trim();
-
-                out.append(spaces(indent))
-                        .append("for (int eclipse_i = 0; ")
-                        .append("eclipse_i < ")
-                        .append(expression(amount))
-                        .append("; eclipse_i++) {\n");
-
-                int end = compileBlock(
-                        lines,
-                        i + 1,
-                        out,
-                        indent + 1
-                );
-
-                out.append(spaces(indent))
-                        .append("}\n");
-
-                i = end;
-
-                continue;
-            }
-
-            // func name()
-            if (line.startsWith("func ")) {
-
-                String name =
-                        line.substring(5).trim();
-
-                if (name.endsWith("()")) {
-                    name = name.substring(
-                            0,
-                            name.length() - 2
-                    );
+                    functionName =
+                            functionName.substring(
+                                    0,
+                                    functionName.length()
+                                            - 2
+                            );
                 }
 
-                out.append(spaces(indent))
-                        .append("// Eclipse function: ")
-                        .append(name)
-                        .append("\n");
+
+                functionLines.clear();
+
 
                 continue;
             }
 
-            // function call
-            if (line.matches(
-                    "[A-Za-z_][A-Za-z0-9_]*\\(\\)"
-            )) {
 
-                String name =
-                        line.substring(
-                                0,
-                                line.indexOf("(")
-                        );
+            /*
+             * End function.
+             */
 
-                out.append(spaces(indent))
-                        .append(name)
-                        .append("();\n");
+            if (
+                    functionMode
+                    &&
+                    line.equals("end")
+            ) {
 
-                continue;
-            }
+                compileFunction(
+                        functionName,
+                        functionLines,
+                        functions
+                );
 
-            // variable
-            if (line.matches(
-                    "[A-Za-z_][A-Za-z0-9_]*\\s*=.*"
-            )) {
 
-                String[] p =
-                        line.split("=", 2);
+                functionMode =
+                        false;
 
-                String name = p[0].trim();
-                String value = p[1].trim();
 
-                out.append(spaces(indent))
-                        .append("var ")
-                        .append(name)
-                        .append(" = ")
-                        .append(expression(value))
-                        .append(";\n");
+                functionName =
+                        "";
+
 
                 continue;
             }
 
-            // end
-            if (line.equals("end")) {
-                continue;
-            }
 
-            error("Unknown Eclipse command: " + line);
+            if (functionMode) {
+
+                functionLines.add(
+                        line
+                );
+
+            } else {
+
+                main.append(
+                        statement(
+                                line,
+                                2
+                        )
+                );
+            }
+        }
+
+
+        StringBuilder out =
+                new StringBuilder();
+
+
+        /*
+         * Imports
+         */
+
+        out.append(
+                "import java.awt.Color;\n"
+        );
+
+        out.append(
+                "import java.awt.Dimension;\n"
+        );
+
+        out.append(
+                "import java.awt.Graphics;\n"
+        );
+
+        out.append(
+                "import java.awt.Image;\n"
+        );
+
+        out.append(
+                "import java.awt.Rectangle;\n"
+        );
+
+        out.append(
+                "import java.awt.event.KeyAdapter;\n"
+        );
+
+        out.append(
+                "import java.awt.event.KeyEvent;\n"
+        );
+
+        out.append(
+                "import java.io.File;\n"
+        );
+
+        out.append(
+                "import java.io.InputStream;\n"
+        );
+
+        out.append(
+                "import javax.swing.JFrame;\n"
+        );
+
+        out.append(
+                "import javax.swing.JPanel;\n"
+        );
+
+        out.append(
+                "import javax.swing.SwingUtilities;\n"
+        );
+
+        out.append(
+                "import java.util.HashMap;\n"
+        );
+
+        out.append(
+                "import java.util.HashSet;\n"
+        );
+
+        out.append("\n");
+
+
+        /*
+         * Class
+         */
+
+        out.append(
+                "public class EclipseProgram {\n\n"
+        );
+
+
+        /*
+         * Variables
+         */
+
+        out.append(
+                "    static JFrame window;\n"
+        );
+
+        out.append(
+                "    static GamePanel panel;\n"
+        );
+
+        out.append(
+                "    static boolean game = true;\n"
+        );
+
+        out.append(
+                "    static String title = \"Eclipse\";\n"
+        );
+
+        out.append(
+                "    static HashMap<String, GameObject> objects "
+                + "= new HashMap<>();\n"
+        );
+
+        out.append(
+                "    static HashSet<Integer> keys "
+                + "= new HashSet<>();\n"
+        );
+
+        out.append(
+                "    static HashMap<String, Integer> vars "
+                + "= new HashMap<>();\n\n"
+        );
+
+
+        /*
+         * Game object
+         */
+
+        out.append("""
+    static class GameObject {
+
+        String name;
+
+        int x = 0;
+        int y = 0;
+
+        int width = 50;
+        int height = 50;
+
+        boolean visible = true;
+
+        GameObject(String name) {
+            this.name = name;
         }
     }
 
-    static int compileBlock(
+""");
+
+
+        /*
+         * Game panel
+         */
+
+        out.append("""
+    static class GamePanel extends JPanel {
+
+        GamePanel() {
+
+            setFocusable(true);
+
+            addKeyListener(new KeyAdapter() {
+
+                @Override
+                public void keyPressed(KeyEvent e) {
+                    keys.add(e.getKeyCode());
+                }
+
+                @Override
+                public void keyReleased(KeyEvent e) {
+                    keys.remove(e.getKeyCode());
+                }
+            });
+        }
+
+
+        @Override
+        protected void paintComponent(Graphics g) {
+
+            super.paintComponent(g);
+
+            g.setColor(Color.BLACK);
+
+            g.fillRect(
+                    0,
+                    0,
+                    getWidth(),
+                    getHeight()
+            );
+
+
+            for (GameObject object : objects.values()) {
+
+                if (!object.visible) {
+                    continue;
+                }
+
+
+                if (object.name.equals("player")) {
+
+                    g.setColor(Color.CYAN);
+
+                }
+                else if (object.name.equals("enemy")) {
+
+                    g.setColor(Color.RED);
+
+                }
+                else if (object.name.equals("bullet")) {
+
+                    g.setColor(Color.YELLOW);
+
+                }
+                else {
+
+                    g.setColor(Color.WHITE);
+                }
+
+
+                g.fillRect(
+                        object.x,
+                        object.y,
+                        object.width,
+                        object.height
+                );
+            }
+        }
+    }
+
+""");
+
+
+        /*
+         * Window
+         */
+
+        out.append("""
+    static void createWindow(
+            int width,
+            int height
+    ) {
+
+        SwingUtilities.invokeLater(() -> {
+
+            window =
+                    new JFrame(title);
+
+
+            /*
+             * Eclipse icon.
+             *
+             * Expected location:
+             *
+             * Assets/Eclipse.ico
+             */
+
+            loadEclipseIcon();
+
+
+            panel =
+                    new GamePanel();
+
+
+            panel.setPreferredSize(
+                    new Dimension(
+                            width,
+                            height
+                    )
+            );
+
+
+            window.setDefaultCloseOperation(
+                    JFrame.EXIT_ON_CLOSE
+            );
+
+
+            window.add(panel);
+
+
+            window.pack();
+
+
+            window.setLocationRelativeTo(
+                    null
+            );
+
+
+            window.setVisible(
+                    true
+            );
+
+
+            panel.requestFocusInWindow();
+
+        });
+
+
+        sleep(300);
+    }
+
+""");
+
+
+        /*
+         * Icon loader
+         */
+
+        out.append("""
+    static void loadEclipseIcon() {
+
+        try {
+
+            File iconFile =
+                    new File(
+                            "Assets/Eclipse.ico"
+                    );
+
+
+            if (!iconFile.exists()) {
+
+                System.out.println(
+                        "[Eclipse Warning] "
+                        + "Assets/Eclipse.ico not found."
+                );
+
+                return;
+            }
+
+
+            /*
+             * Java ImageIO does not consistently
+             * support ICO files.
+             *
+             * Try ImageIO first.
+             */
+
+            Image icon =
+                    ImageIO.read(
+                            iconFile
+                    );
+
+
+            if (icon != null) {
+
+                window.setIconImage(
+                        icon
+                );
+
+                return;
+            }
+
+
+            /*
+             * Windows fallback.
+             *
+             * Uses PowerShell/.NET to convert the
+             * exact ICO into a temporary PNG.
+             */
+
+            File png =
+                    new File(
+                            System.getProperty(
+                                    "java.io.tmpdir"
+                            ),
+                            "eclipse-icon.png"
+                    );
+
+
+            String icoPath =
+                    iconFile
+                            .getAbsolutePath()
+                            .replace(
+                                    "'",
+                                    "''"
+                            );
+
+
+            String pngPath =
+                    png
+                            .getAbsolutePath()
+                            .replace(
+                                    "'",
+                                    "''"
+                            );
+
+
+            String command =
+                    "Add-Type -AssemblyName System.Drawing; "
+                    + "$i=[System.Drawing.Icon]::ExtractAssociatedIcon('"
+                    + icoPath
+                    + "'); "
+                    + "$b=$i.ToBitmap(); "
+                    + "$b.Save('"
+                    + pngPath
+                    + "', "
+                    + "[System.Drawing.Imaging.ImageFormat]::Png)";
+
+
+            Process process =
+                    new ProcessBuilder(
+                            "powershell.exe",
+                            "-NoProfile",
+                            "-Command",
+                            command
+                    )
+                    .redirectErrorStream(
+                            true
+                    )
+                    .start();
+
+
+            process.waitFor();
+
+
+            if (png.exists()) {
+
+                Image converted =
+                        ImageIO.read(
+                                png
+                        );
+
+
+                if (converted != null) {
+
+                    window.setIconImage(
+                            converted
+                    );
+
+                    return;
+                }
+            }
+
+
+            System.out.println(
+                    "[Eclipse Warning] "
+                    + "Unable to decode Eclipse.ico."
+            );
+
+
+        } catch (Exception e) {
+
+            System.out.println(
+                    "[Eclipse Warning] "
+                    + "Icon error: "
+                    + e.getMessage()
+            );
+        }
+    }
+
+""");
+
+
+        /*
+         * Object commands
+         */
+
+        out.append("""
+    static void createObject(
+            String name
+    ) {
+
+        objects.put(
+                name,
+                new GameObject(name)
+        );
+    }
+
+
+    static void setX(
+            String name,
+            int value
+    ) {
+
+        GameObject object =
+                objects.get(name);
+
+        if (object != null) {
+            object.x = value;
+        }
+    }
+
+
+    static void setY(
+            String name,
+            int value
+    ) {
+
+        GameObject object =
+                objects.get(name);
+
+        if (object != null) {
+            object.y = value;
+        }
+    }
+
+
+    static void moveX(
+            String name,
+            int value
+    ) {
+
+        GameObject object =
+                objects.get(name);
+
+        if (object != null) {
+            object.x += value;
+        }
+    }
+
+
+    static void moveY(
+            String name,
+            int value
+    ) {
+
+        GameObject object =
+                objects.get(name);
+
+        if (object != null) {
+            object.y += value;
+        }
+    }
+
+
+    static void draw() {
+
+        if (panel != null) {
+            panel.repaint();
+        }
+    }
+
+""");
+
+
+        /*
+         * Keyboard
+         */
+
+        out.append("""
+    static boolean keyDown(
+            String key
+    ) {
+
+        switch (key.toUpperCase()) {
+
+            case "LEFT":
+                return keys.contains(
+                        KeyEvent.VK_LEFT
+                );
+
+            case "RIGHT":
+                return keys.contains(
+                        KeyEvent.VK_RIGHT
+                );
+
+            case "UP":
+                return keys.contains(
+                        KeyEvent.VK_UP
+                );
+
+            case "DOWN":
+                return keys.contains(
+                        KeyEvent.VK_DOWN
+                );
+
+            case "SPACE":
+                return keys.contains(
+                        KeyEvent.VK_SPACE
+                );
+
+            case "ENTER":
+                return keys.contains(
+                        KeyEvent.VK_ENTER
+                );
+
+            case "R":
+                return keys.contains(
+                        KeyEvent.VK_R
+                );
+
+            default:
+                return false;
+        }
+    }
+
+""");
+
+
+        /*
+         * Collision
+         */
+
+        out.append("""
+    static boolean collision(
+            String firstName,
+            String secondName
+    ) {
+
+        GameObject first =
+                objects.get(
+                        firstName
+                );
+
+
+        GameObject second =
+                objects.get(
+                        secondName
+                );
+
+
+        if (
+                first == null
+                ||
+                second == null
+        ) {
+
+            return false;
+        }
+
+
+        Rectangle firstRect =
+                new Rectangle(
+                        first.x,
+                        first.y,
+                        first.width,
+                        first.height
+                );
+
+
+        Rectangle secondRect =
+                new Rectangle(
+                        second.x,
+                        second.y,
+                        second.width,
+                        second.height
+                );
+
+
+        return firstRect.intersects(
+                secondRect
+        );
+    }
+
+""");
+
+
+        /*
+         * Variables
+         */
+
+        out.append("""
+    static void setVar(
+            String name,
+            int value
+    ) {
+
+        vars.put(
+                name,
+                value
+        );
+    }
+
+
+    static int getVar(
+            String name
+    ) {
+
+        return vars.getOrDefault(
+                name,
+                0
+        );
+    }
+
+
+    static void sleep(
+            long milliseconds
+    ) {
+
+        try {
+
+            Thread.sleep(
+                    milliseconds
+            );
+
+        }
+        catch (InterruptedException ignored) {
+
+        }
+    }
+
+""");
+
+
+        /*
+         * Functions
+         */
+
+        out.append(
+                functions
+        );
+
+
+        /*
+         * Main
+         */
+
+        out.append(
+                "    public static void main("
+                + "String[] args"
+                + ") throws Exception {\n\n"
+        );
+
+
+        out.append(
+                main
+        );
+
+
+        out.append(
+                "    }\n"
+        );
+
+
+        out.append(
+                "}\n"
+        );
+
+
+        return out.toString();
+    }
+
+
+    static void compileFunction(
+            String name,
             List<String> lines,
-            int start,
-            StringBuilder out,
+            StringBuilder output
+    ) {
+
+        output.append(
+                "    static void "
+                + name
+                + "() throws Exception {\n"
+        );
+
+
+        for (String line : lines) {
+
+            output.append(
+                    statement(
+                            line,
+                            2
+                    )
+            );
+        }
+
+
+        output.append(
+                "    }\n\n"
+        );
+    }
+
+
+    static String statement(
+            String line,
             int indent
     ) {
 
-        int depth = 0;
+        String spaces =
+                "    ".repeat(
+                        indent
+                );
 
-        for (int i = start; i < lines.size(); i++) {
 
-            String line = clean(lines.get(i));
+        /*
+         * console.log()
+         */
 
-            if (line.startsWith("if ")
-                    || line.startsWith("while ")
-                    || line.startsWith("repeat ")
-                    || line.startsWith("func ")) {
+        if (
+                line.startsWith(
+                        "console.log("
+                )
+        ) {
 
-                depth++;
-            }
+            String value =
+                    inside(line);
 
-            if (line.equals("end")) {
 
-                if (depth == 0) {
-                    return i;
-                }
-
-                depth--;
-            }
-
-            List<String> one =
-                    new ArrayList<>();
-
-            one.add(lines.get(i));
-
-            compileLines(one, out, indent);
+            return spaces
+                    + "System.out.println("
+                    + value
+                    + ");\n";
         }
 
-        return lines.size();
-    }
 
-    static String expression(String value) {
+        /*
+         * title
+         */
 
-        value = value.trim();
+        if (
+                line.startsWith(
+                        "title ="
+                )
+        ) {
 
-        value = value.replaceAll(
-                "\\[([A-Za-z_][A-Za-z0-9_]*)\\]",
-                "$1"
-        );
+            String value =
+                    line.substring(
+                            7
+                    ).trim();
 
-        return value;
-    }
 
-    static String condition(String value) {
+            return spaces
+                    + "title = "
+                    + value
+                    + ";\n";
+        }
 
-        value = expression(value);
 
-        value = value.replace(
-                " = ",
-                " == "
-        );
+        /*
+         * create window
+         */
 
-        return value;
-    }
+        if (
+                line.startsWith(
+                        "create window("
+                )
+        ) {
 
-    static String inside(String value) {
+            String value =
+                    inside(line);
 
-        int start = value.indexOf("(");
-        int end = value.lastIndexOf(")");
 
-        if (start == -1 || end == -1) {
+            String[] parts =
+                    value.split(",");
+
+
+            if (
+                    parts.length == 2
+            ) {
+
+                return spaces
+                        + "createWindow("
+                        + parts[0].trim()
+                        + ", "
+                        + parts[1].trim()
+                        + ");\n";
+            }
+
+
             return "";
         }
 
-        return value.substring(
+
+        /*
+         * game
+         */
+
+        if (
+                line.startsWith(
+                        "game ="
+                )
+        ) {
+
+            String value =
+                    line.substring(
+                            6
+                    ).trim();
+
+
+            return spaces
+                    + "game = "
+                    + value
+                    + ";\n";
+        }
+
+
+        /*
+         * obj
+         */
+
+        if (
+                line.startsWith(
+                        "obj "
+                )
+        ) {
+
+            String name =
+                    line.substring(
+                            4
+                    ).trim();
+
+
+            return spaces
+                    + "createObject(\""
+                    + name
+                    + "\");\n";
+        }
+
+
+        /*
+         * set object x/y
+         */
+
+        if (
+                line.startsWith(
+                        "set "
+                )
+        ) {
+
+            String[] parts =
+                    line.split(
+                            "\\s+"
+                    );
+
+
+            if (
+                    parts.length >= 4
+            ) {
+
+                String object =
+                        parts[1];
+
+                String axis =
+                        parts[2];
+
+                String value =
+                        parts[3];
+
+
+                if (
+                        axis.equalsIgnoreCase(
+                                "x"
+                        )
+                ) {
+
+                    return spaces
+                            + "setX(\""
+                            + object
+                            + "\", "
+                            + value
+                            + ");\n";
+                }
+
+
+                if (
+                        axis.equalsIgnoreCase(
+                                "y"
+                        )
+                ) {
+
+                    return spaces
+                            + "setY(\""
+                            + object
+                            + "\", "
+                            + value
+                            + ");\n";
+                }
+            }
+
+
+            return "";
+        }
+
+
+        /*
+         * move object x/y
+         */
+
+        if (
+                line.startsWith(
+                        "move "
+                )
+        ) {
+
+            String[] parts =
+                    line.split(
+                            "\\s+"
+                    );
+
+
+            if (
+                    parts.length >= 4
+            ) {
+
+                String object =
+                        parts[1];
+
+                String axis =
+                        parts[2];
+
+                String value =
+                        parts[3];
+
+
+                if (
+                        axis.equalsIgnoreCase(
+                                "x"
+                        )
+                ) {
+
+                    return spaces
+                            + "moveX(\""
+                            + object
+                            + "\", "
+                            + value
+                            + ");\n";
+                }
+
+
+                if (
+                        axis.equalsIgnoreCase(
+                                "y"
+                        )
+                ) {
+
+                    return spaces
+                            + "moveY(\""
+                            + object
+                            + "\", "
+                            + value
+                            + ");\n";
+                }
+            }
+
+
+            return "";
+        }
+
+
+        /*
+         * draw object
+         */
+
+        if (
+                line.startsWith(
+                        "draw "
+                )
+        ) {
+
+            return spaces
+                    + "draw();\n";
+        }
+
+
+        /*
+         * keydown
+         */
+
+        if (
+                line.startsWith(
+                        "if keydown("
+                )
+                &&
+                line.endsWith(
+                        "then"
+                )
+        ) {
+
+            String key =
+                    inside(
+                            line.substring(
+                                    3,
+                                    line.length() - 5
+                            )
+                    );
+
+
+            return spaces
+                    + "if (keyDown("
+                    + key
+                    + ")) {\n";
+        }
+
+
+        /*
+         * collision
+         */
+
+        if (
+                line.startsWith(
+                        "if collision("
+                )
+                &&
+                line.endsWith(
+                        "then"
+                )
+        ) {
+
+            String value =
+                    inside(
+                            line.substring(
+                                    3,
+                                    line.length() - 5
+                            )
+                    );
+
+
+            String[] parts =
+                    value.split(",");
+
+
+            if (
+                    parts.length == 2
+            ) {
+
+                return spaces
+                        + "if (collision(\""
+                        + parts[0].trim()
+                        + "\", \""
+                        + parts[1].trim()
+                        + "\")) {\n";
+            }
+
+
+            return "";
+        }
+
+
+        /*
+         * while
+         *
+         * while [game] = true
+         */
+
+        if (
+                line.startsWith(
+                        "while "
+                )
+        ) {
+
+            String condition =
+                    line.substring(
+                            6
+                    ).trim();
+
+
+            condition =
+                    convertCondition(
+                            condition
+                    );
+
+
+            return spaces
+                    + "while ("
+                    + condition
+                    + ") {\n";
+        }
+
+
+        /*
+         * normal if
+         */
+
+        if (
+                line.startsWith(
+                        "if "
+                )
+                &&
+                line.endsWith(
+                        "then"
+                )
+        ) {
+
+            String condition =
+                    line.substring(
+                            3,
+                            line.length() - 5
+                    ).trim();
+
+
+            condition =
+                    convertCondition(
+                            condition
+                    );
+
+
+            return spaces
+                    + "if ("
+                    + condition
+                    + ") {\n";
+        }
+
+
+        /*
+         * end
+         */
+
+        if (
+                line.equals(
+                        "end"
+                )
+        ) {
+
+            return spaces
+                    + "}\n";
+        }
+
+
+        /*
+         * function call
+         *
+         * Example:
+         *
+         * shoot()
+         */
+
+        if (
+                line.matches(
+                        "[A-Za-z_][A-Za-z0-9_]*\\(\\)"
+                )
+        ) {
+
+            return spaces
+                    + line
+                    + ";\n";
+        }
+
+
+        /*
+         * Unknown command
+         */
+
+        System.out.println(
+                "[Eclipse Warning] Unknown command: "
+                + line
+        );
+
+
+        return "";
+    }
+
+
+    static String convertCondition(
+            String condition
+    ) {
+
+        condition =
+                condition.replace(
+                        "[game]",
+                        "game"
+                );
+
+
+        condition =
+                condition.replace(
+                        " = ",
+                        " == "
+                );
+
+
+        return condition;
+    }
+
+
+    static String inside(
+            String text
+    ) {
+
+        int start =
+                text.indexOf(
+                        "("
+                );
+
+
+        int end =
+                text.lastIndexOf(
+                        ")"
+                );
+
+
+        if (
+                start == -1
+                ||
+                end == -1
+        ) {
+
+            return "";
+        }
+
+
+        return text.substring(
                 start + 1,
                 end
         ).trim();
     }
 
-    static String clean(String line) {
 
-        line = line.trim();
+    static void error(
+            String message
+    ) {
 
-        if (line.startsWith("#")) {
-            return "";
-        }
-
-        return line;
-    }
-
-    static String spaces(int n) {
-        return "    ".repeat(n);
-    }
-
-    static void error(String message) {
-        System.err.println(
-                "[Eclipse Error] " + message
+        System.out.println(
+                "[Eclipse Error] "
+                + message
         );
     }
 }
