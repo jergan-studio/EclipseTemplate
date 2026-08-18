@@ -7,7 +7,6 @@ import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 
 import java.io.File;
-import java.io.InputStream;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -23,41 +22,33 @@ import javax.swing.JFrame;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 
-
 public class Eclipse {
 
-    private static final String VERSION = "Eclipse ECS Compiler 1.0";
+    static final String VERSION = "Eclipse ECS 1.0";
 
-    private static final String GENERATED_CLASS =
-            "EclipseProgram";
-
+    static final String GENERATED_CLASS = "EclipseProgram";
 
     public static void main(String[] args) {
 
-        System.out.println();
         System.out.println("================================");
-        System.out.println("        ECLIPSE COMPILER");
+        System.out.println("        ECLIPSE ECS");
         System.out.println("================================");
         System.out.println(VERSION);
         System.out.println();
 
-
         if (args.length == 0) {
 
             System.out.println("Usage:");
-            System.out.println();
-            System.out.println("  java Eclipse game.ecs");
+            System.out.println("  java Eclipse main.ecs");
             System.out.println();
 
             return;
         }
 
-
         Path ecsFile =
                 Paths.get(args[0])
                         .toAbsolutePath()
                         .normalize();
-
 
         if (!Files.exists(ecsFile)) {
 
@@ -69,21 +60,16 @@ public class Eclipse {
             return;
         }
 
-
-        if (
-                !ecsFile
-                        .toString()
-                        .toLowerCase()
-                        .endsWith(".ecs")
-        ) {
+        if (!ecsFile.toString()
+                .toLowerCase()
+                .endsWith(".ecs")) {
 
             error(
-                    "The file must use the .ecs extension."
+                    "Eclipse files must use .ecs"
             );
 
             return;
         }
-
 
         try {
 
@@ -92,76 +78,48 @@ public class Eclipse {
                             ecsFile
                     );
 
-
-            String generated =
+            String javaCode =
                     compile(lines);
-
 
             Path projectFolder =
                     ecsFile.getParent();
-
 
             Path buildFolder =
                     projectFolder.resolve(
                             ".eclipse-build"
                     );
 
-
             Files.createDirectories(
                     buildFolder
             );
 
-
-            Path javaFile =
+            Path generatedJava =
                     buildFolder.resolve(
                             GENERATED_CLASS
                             + ".java"
                     );
 
-
             Files.writeString(
-                    javaFile,
-                    generated
-            );
-
-
-            System.out.println(
-                    "Source:"
+                    generatedJava,
+                    javaCode
             );
 
             System.out.println(
-                    "  "
-                    + ecsFile
+                    "Compiling "
+                    + ecsFile.getFileName()
+                    + "..."
             );
 
-            System.out.println();
-
-
-            System.out.println(
-                    "Generating Java..."
-            );
-
-
-            System.out.println(
-                    "  "
-                    + javaFile
-            );
-
-            System.out.println();
-
-
-            Process javac =
+            Process compiler =
                     new ProcessBuilder(
                             "javac",
-                            javaFile.toString()
+                            generatedJava.toString()
                     )
                     .inheritIO()
                     .start();
 
-
             int result =
-                    javac.waitFor();
-
+                    compiler.waitFor();
 
             if (result != 0) {
 
@@ -172,20 +130,15 @@ public class Eclipse {
                 return;
             }
 
-
             System.out.println(
                     "ECS compilation successful!"
             );
 
-            System.out.println();
-
-
             System.out.println(
-                    "Launching ECS program..."
+                    "Starting Eclipse program..."
             );
 
             System.out.println();
-
 
             Process program =
                     new ProcessBuilder(
@@ -197,25 +150,21 @@ public class Eclipse {
                     .inheritIO()
                     .start();
 
-
             program.waitFor();
-
 
         } catch (Exception e) {
 
             error(
-                    e.getClass()
-                            .getSimpleName()
+                    e.getClass().getSimpleName()
                     + ": "
                     + e.getMessage()
             );
         }
     }
 
-
     /*
      * ============================================================
-     * COMPILER
+     * ECS COMPILER
      * ============================================================
      */
 
@@ -226,88 +175,61 @@ public class Eclipse {
         StringBuilder main =
                 new StringBuilder();
 
-
         StringBuilder functions =
                 new StringBuilder();
 
-
-        boolean functionMode =
+        boolean insideFunction =
                 false;
 
-
-        String functionName =
-                "";
-
+        String functionName = "";
 
         List<String> functionLines =
                 new ArrayList<>();
-
 
         for (String raw : lines) {
 
             String line =
                     raw.trim();
 
-
             if (line.isEmpty()) {
                 continue;
             }
-
 
             if (line.startsWith("#")) {
                 continue;
             }
 
-
             /*
              * func shoot()
              */
 
-            if (
-                    line.startsWith(
-                            "func "
-                    )
-            ) {
+            if (line.startsWith("func ")) {
 
-                functionMode =
-                        true;
-
+                insideFunction = true;
 
                 functionName =
-                        line.substring(
-                                5
-                        ).trim();
+                        line.substring(5).trim();
 
-
-                if (
-                        functionName
-                                .endsWith(
-                                        "()"
-                                )
-                ) {
+                if (functionName.endsWith("()")) {
 
                     functionName =
                             functionName.substring(
                                     0,
-                                    functionName.length()
-                                            - 2
+                                    functionName.length() - 2
                             );
                 }
 
-
                 functionLines.clear();
-
 
                 continue;
             }
-
 
             /*
              * End function.
              */
 
             if (
-                    functionMode
+                    insideFunction
                     &&
                     line.equals("end")
             ) {
@@ -318,29 +240,21 @@ public class Eclipse {
                         functions
                 );
 
+                insideFunction = false;
 
-                functionMode =
-                        false;
-
-
-                functionName =
-                        "";
-
+                functionName = "";
 
                 continue;
             }
 
+            if (insideFunction) {
 
-            if (functionMode) {
-
-                functionLines.add(
-                        line
-                );
+                functionLines.add(line);
 
             } else {
 
                 main.append(
-                        statement(
+                        compileStatement(
                                 line,
                                 2
                         )
@@ -348,10 +262,8 @@ public class Eclipse {
             }
         }
 
-
         StringBuilder out =
                 new StringBuilder();
-
 
         /*
          * Imports
@@ -389,8 +301,13 @@ public class Eclipse {
                 "import java.io.File;\n"
         );
 
+        /*
+         * IMPORTANT:
+         * This fixes the ImageIO error.
+         */
+
         out.append(
-                "import java.io.InputStream;\n"
+                "import javax.imageio.ImageIO;\n"
         );
 
         out.append(
@@ -415,7 +332,6 @@ public class Eclipse {
 
         out.append("\n");
 
-
         /*
          * Class
          */
@@ -423,7 +339,6 @@ public class Eclipse {
         out.append(
                 "public class EclipseProgram {\n\n"
         );
-
 
         /*
          * Variables
@@ -446,20 +361,19 @@ public class Eclipse {
         );
 
         out.append(
-                "    static HashMap<String, GameObject> objects "
-                + "= new HashMap<>();\n"
+                "    static HashMap<String, GameObject> objects = "
+                + "new HashMap<>();\n"
         );
 
         out.append(
-                "    static HashSet<Integer> keys "
-                + "= new HashSet<>();\n"
+                "    static HashSet<Integer> keys = "
+                + "new HashSet<>();\n"
         );
 
         out.append(
-                "    static HashMap<String, Integer> vars "
-                + "= new HashMap<>();\n\n"
+                "    static HashMap<String, Integer> vars = "
+                + "new HashMap<>();\n\n"
         );
-
 
         /*
          * Game object
@@ -484,7 +398,6 @@ public class Eclipse {
     }
 
 """);
-
 
         /*
          * Game panel
@@ -511,7 +424,6 @@ public class Eclipse {
             });
         }
 
-
         @Override
         protected void paintComponent(Graphics g) {
 
@@ -526,34 +438,28 @@ public class Eclipse {
                     getHeight()
             );
 
-
             for (GameObject object : objects.values()) {
 
                 if (!object.visible) {
                     continue;
                 }
 
-
                 if (object.name.equals("player")) {
 
                     g.setColor(Color.CYAN);
 
-                }
-                else if (object.name.equals("enemy")) {
+                } else if (object.name.equals("enemy")) {
 
                     g.setColor(Color.RED);
 
-                }
-                else if (object.name.equals("bullet")) {
+                } else if (object.name.equals("bullet")) {
 
                     g.setColor(Color.YELLOW);
 
-                }
-                else {
+                } else {
 
                     g.setColor(Color.WHITE);
                 }
-
 
                 g.fillRect(
                         object.x,
@@ -566,7 +472,6 @@ public class Eclipse {
     }
 
 """);
-
 
         /*
          * Window
@@ -583,21 +488,10 @@ public class Eclipse {
             window =
                     new JFrame(title);
 
-
-            /*
-             * Eclipse icon.
-             *
-             * Expected location:
-             *
-             * Assets/Eclipse.ico
-             */
-
             loadEclipseIcon();
-
 
             panel =
                     new GamePanel();
-
 
             panel.setPreferredSize(
                     new Dimension(
@@ -606,41 +500,29 @@ public class Eclipse {
                     )
             );
 
-
             window.setDefaultCloseOperation(
                     JFrame.EXIT_ON_CLOSE
             );
 
-
             window.add(panel);
-
 
             window.pack();
 
+            window.setLocationRelativeTo(null);
 
-            window.setLocationRelativeTo(
-                    null
-            );
-
-
-            window.setVisible(
-                    true
-            );
-
+            window.setVisible(true);
 
             panel.requestFocusInWindow();
 
         });
-
 
         sleep(300);
     }
 
 """);
 
-
         /*
-         * Icon loader
+         * Eclipse icon
          */
 
         out.append("""
@@ -653,7 +535,6 @@ public class Eclipse {
                             "Assets/Eclipse.ico"
                     );
 
-
             if (!iconFile.exists()) {
 
                 System.out.println(
@@ -664,19 +545,14 @@ public class Eclipse {
                 return;
             }
 
-
             /*
-             * Java ImageIO does not consistently
-             * support ICO files.
-             *
-             * Try ImageIO first.
+             * First try ImageIO.
              */
 
             Image icon =
                     ImageIO.read(
                             iconFile
                     );
-
 
             if (icon != null) {
 
@@ -687,12 +563,8 @@ public class Eclipse {
                 return;
             }
 
-
             /*
-             * Windows fallback.
-             *
-             * Uses PowerShell/.NET to convert the
-             * exact ICO into a temporary PNG.
+             * Windows ICO fallback.
              */
 
             File png =
@@ -703,7 +575,6 @@ public class Eclipse {
                             "eclipse-icon.png"
                     );
 
-
             String icoPath =
                     iconFile
                             .getAbsolutePath()
@@ -712,7 +583,6 @@ public class Eclipse {
                                     "''"
                             );
 
-
             String pngPath =
                     png
                             .getAbsolutePath()
@@ -720,7 +590,6 @@ public class Eclipse {
                                     "'",
                                     "''"
                             );
-
 
             String command =
                     "Add-Type -AssemblyName System.Drawing; "
@@ -733,7 +602,6 @@ public class Eclipse {
                     + "', "
                     + "[System.Drawing.Imaging.ImageFormat]::Png)";
 
-
             Process process =
                     new ProcessBuilder(
                             "powershell.exe",
@@ -741,14 +609,10 @@ public class Eclipse {
                             "-Command",
                             command
                     )
-                    .redirectErrorStream(
-                            true
-                    )
+                    .redirectErrorStream(true)
                     .start();
 
-
             process.waitFor();
-
 
             if (png.exists()) {
 
@@ -757,23 +621,13 @@ public class Eclipse {
                                 png
                         );
 
-
                 if (converted != null) {
 
                     window.setIconImage(
                             converted
                     );
-
-                    return;
                 }
             }
-
-
-            System.out.println(
-                    "[Eclipse Warning] "
-                    + "Unable to decode Eclipse.ico."
-            );
-
 
         } catch (Exception e) {
 
@@ -787,9 +641,8 @@ public class Eclipse {
 
 """);
 
-
         /*
-         * Object commands
+         * Objects
          */
 
         out.append("""
@@ -802,7 +655,6 @@ public class Eclipse {
                 new GameObject(name)
         );
     }
-
 
     static void setX(
             String name,
@@ -817,7 +669,6 @@ public class Eclipse {
         }
     }
 
-
     static void setY(
             String name,
             int value
@@ -830,7 +681,6 @@ public class Eclipse {
             object.y = value;
         }
     }
-
 
     static void moveX(
             String name,
@@ -845,7 +695,6 @@ public class Eclipse {
         }
     }
 
-
     static void moveY(
             String name,
             int value
@@ -859,7 +708,6 @@ public class Eclipse {
         }
     }
 
-
     static void draw() {
 
         if (panel != null) {
@@ -868,7 +716,6 @@ public class Eclipse {
     }
 
 """);
-
 
         /*
          * Keyboard
@@ -916,13 +763,32 @@ public class Eclipse {
                         KeyEvent.VK_R
                 );
 
+            case "A":
+                return keys.contains(
+                        KeyEvent.VK_A
+                );
+
+            case "D":
+                return keys.contains(
+                        KeyEvent.VK_D
+                );
+
+            case "W":
+                return keys.contains(
+                        KeyEvent.VK_W
+                );
+
+            case "S":
+                return keys.contains(
+                        KeyEvent.VK_S
+                );
+
             default:
                 return false;
         }
     }
 
 """);
-
 
         /*
          * Collision
@@ -935,16 +801,10 @@ public class Eclipse {
     ) {
 
         GameObject first =
-                objects.get(
-                        firstName
-                );
-
+                objects.get(firstName);
 
         GameObject second =
-                objects.get(
-                        secondName
-                );
-
+                objects.get(secondName);
 
         if (
                 first == null
@@ -955,7 +815,6 @@ public class Eclipse {
             return false;
         }
 
-
         Rectangle firstRect =
                 new Rectangle(
                         first.x,
@@ -963,7 +822,6 @@ public class Eclipse {
                         first.width,
                         first.height
                 );
-
 
         Rectangle secondRect =
                 new Rectangle(
@@ -973,14 +831,12 @@ public class Eclipse {
                         second.height
                 );
 
-
         return firstRect.intersects(
                 secondRect
         );
     }
 
 """);
-
 
         /*
          * Variables
@@ -998,7 +854,6 @@ public class Eclipse {
         );
     }
 
-
     static int getVar(
             String name
     ) {
@@ -1008,7 +863,6 @@ public class Eclipse {
                 0
         );
     }
-
 
     static void sleep(
             long milliseconds
@@ -1020,14 +874,13 @@ public class Eclipse {
                     milliseconds
             );
 
-        }
-        catch (InterruptedException ignored) {
-
+        } catch (
+                InterruptedException ignored
+        ) {
         }
     }
 
 """);
-
 
         /*
          * Functions
@@ -1036,7 +889,6 @@ public class Eclipse {
         out.append(
                 functions
         );
-
 
         /*
          * Main
@@ -1048,25 +900,20 @@ public class Eclipse {
                 + ") throws Exception {\n\n"
         );
 
-
         out.append(
                 main
         );
-
 
         out.append(
                 "    }\n"
         );
 
-
         out.append(
                 "}\n"
         );
 
-
         return out.toString();
     }
-
 
     static void compileFunction(
             String name,
@@ -1080,37 +927,31 @@ public class Eclipse {
                 + "() throws Exception {\n"
         );
 
-
         for (String line : lines) {
 
             output.append(
-                    statement(
+                    compileStatement(
                             line,
                             2
                     )
             );
         }
 
-
         output.append(
                 "    }\n\n"
         );
     }
 
-
-    static String statement(
+    static String compileStatement(
             String line,
             int indent
     ) {
 
         String spaces =
-                "    ".repeat(
-                        indent
-                );
-
+                "    ".repeat(indent);
 
         /*
-         * console.log()
+         * console.log("hello")
          */
 
         if (
@@ -1122,16 +963,14 @@ public class Eclipse {
             String value =
                     inside(line);
 
-
             return spaces
                     + "System.out.println("
                     + value
                     + ");\n";
         }
 
-
         /*
-         * title
+         * title = "Eclipse Shooter"
          */
 
         if (
@@ -1145,16 +984,14 @@ public class Eclipse {
                             7
                     ).trim();
 
-
             return spaces
                     + "title = "
                     + value
                     + ";\n";
         }
 
-
         /*
-         * create window
+         * create window(800, 600)
          */
 
         if (
@@ -1166,14 +1003,10 @@ public class Eclipse {
             String value =
                     inside(line);
 
-
             String[] parts =
                     value.split(",");
 
-
-            if (
-                    parts.length == 2
-            ) {
+            if (parts.length == 2) {
 
                 return spaces
                         + "createWindow("
@@ -1183,13 +1016,11 @@ public class Eclipse {
                         + ");\n";
             }
 
-
             return "";
         }
 
-
         /*
-         * game
+         * game = true
          */
 
         if (
@@ -1203,16 +1034,14 @@ public class Eclipse {
                             6
                     ).trim();
 
-
             return spaces
                     + "game = "
                     + value
                     + ";\n";
         }
 
-
         /*
-         * obj
+         * obj player
          */
 
         if (
@@ -1226,16 +1055,14 @@ public class Eclipse {
                             4
                     ).trim();
 
-
             return spaces
                     + "createObject(\""
                     + name
                     + "\");\n";
         }
 
-
         /*
-         * set object x/y
+         * set player x 375
          */
 
         if (
@@ -1249,10 +1076,7 @@ public class Eclipse {
                             "\\s+"
                     );
 
-
-            if (
-                    parts.length >= 4
-            ) {
+            if (parts.length >= 4) {
 
                 String object =
                         parts[1];
@@ -1262,7 +1086,6 @@ public class Eclipse {
 
                 String value =
                         parts[3];
-
 
                 if (
                         axis.equalsIgnoreCase(
@@ -1277,7 +1100,6 @@ public class Eclipse {
                             + value
                             + ");\n";
                 }
-
 
                 if (
                         axis.equalsIgnoreCase(
@@ -1294,13 +1116,11 @@ public class Eclipse {
                 }
             }
 
-
             return "";
         }
 
-
         /*
-         * move object x/y
+         * move player x -5
          */
 
         if (
@@ -1314,10 +1134,7 @@ public class Eclipse {
                             "\\s+"
                     );
 
-
-            if (
-                    parts.length >= 4
-            ) {
+            if (parts.length >= 4) {
 
                 String object =
                         parts[1];
@@ -1327,7 +1144,6 @@ public class Eclipse {
 
                 String value =
                         parts[3];
-
 
                 if (
                         axis.equalsIgnoreCase(
@@ -1342,7 +1158,6 @@ public class Eclipse {
                             + value
                             + ");\n";
                 }
-
 
                 if (
                         axis.equalsIgnoreCase(
@@ -1359,13 +1174,11 @@ public class Eclipse {
                 }
             }
 
-
             return "";
         }
 
-
         /*
-         * draw object
+         * draw player
          */
 
         if (
@@ -1378,9 +1191,8 @@ public class Eclipse {
                     + "draw();\n";
         }
 
-
         /*
-         * keydown
+         * if keydown("LEFT") then
          */
 
         if (
@@ -1401,16 +1213,14 @@ public class Eclipse {
                             )
                     );
 
-
             return spaces
                     + "if (keyDown("
                     + key
                     + ")) {\n";
         }
 
-
         /*
-         * collision
+         * if collision(player, enemy) then
          */
 
         if (
@@ -1431,14 +1241,10 @@ public class Eclipse {
                             )
                     );
 
-
             String[] parts =
                     value.split(",");
 
-
-            if (
-                    parts.length == 2
-            ) {
+            if (parts.length == 2) {
 
                 return spaces
                         + "if (collision(\""
@@ -1448,14 +1254,10 @@ public class Eclipse {
                         + "\")) {\n";
             }
 
-
             return "";
         }
 
-
         /*
-         * while
-         *
          * while [game] = true
          */
 
@@ -1470,22 +1272,25 @@ public class Eclipse {
                             6
                     ).trim();
 
-
             condition =
                     convertCondition(
                             condition
                     );
 
+            /*
+             * Prevent 100% CPU usage.
+             */
 
             return spaces
                     + "while ("
                     + condition
-                    + ") {\n";
+                    + ") {\n"
+                    + spaces
+                    + "    sleep(16);\n";
         }
 
-
         /*
-         * normal if
+         * if [xd] = 3 then
          */
 
         if (
@@ -1504,19 +1309,16 @@ public class Eclipse {
                             line.length() - 5
                     ).trim();
 
-
             condition =
                     convertCondition(
                             condition
                     );
-
 
             return spaces
                     + "if ("
                     + condition
                     + ") {\n";
         }
-
 
         /*
          * end
@@ -1532,13 +1334,8 @@ public class Eclipse {
                     + "}\n";
         }
 
-
         /*
-         * function call
-         *
-         * Example:
-         *
-         * shoot()
+         * Function call
          */
 
         if (
@@ -1552,20 +1349,13 @@ public class Eclipse {
                     + ";\n";
         }
 
-
-        /*
-         * Unknown command
-         */
-
         System.out.println(
-                "[Eclipse Warning] Unknown command: "
+                "[Eclipse Warning] Unknown ECS command: "
                 + line
         );
 
-
         return "";
     }
-
 
     static String convertCondition(
             String condition
@@ -1577,6 +1367,15 @@ public class Eclipse {
                         "game"
                 );
 
+        /*
+         * Basic ECS equality:
+         *
+         * [xd] = 3
+         *
+         * becomes:
+         *
+         * xd == 3
+         */
 
         condition =
                 condition.replace(
@@ -1584,26 +1383,18 @@ public class Eclipse {
                         " == "
                 );
 
-
         return condition;
     }
-
 
     static String inside(
             String text
     ) {
 
         int start =
-                text.indexOf(
-                        "("
-                );
-
+                text.indexOf("(");
 
         int end =
-                text.lastIndexOf(
-                        ")"
-                );
-
+                text.lastIndexOf(")");
 
         if (
                 start == -1
@@ -1614,13 +1405,11 @@ public class Eclipse {
             return "";
         }
 
-
         return text.substring(
                 start + 1,
                 end
         ).trim();
     }
-
 
     static void error(
             String message
